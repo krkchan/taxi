@@ -1,0 +1,261 @@
+<!DOCTYPE html>  
+<html lang="ja">  
+<head>  
+    <meta charset="UTF-8">  
+    <!-- スマホ用設定：拡大縮小禁止、アプリモード有効化 -->  
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">  
+    <meta name="apple-mobile-web-app-capable" content="yes">  
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">  
+    <meta name="theme-color" content="#000000">  
+    <title>Taxi Pro</title> <!-- ホーム画面での名前 -->  
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />  
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>  
+    
+    <!-- アプリアイコン用スタイル（簡易） -->  
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3097/3097144.png">  
+
+    <style>  
+        /* 全体設定 (ダークモード・セーフエリア対応) */  
+        body {   
+            margin: 0; padding: 0;   
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;   
+            background: #000; color: #fff;   
+            /* iPhoneのノッチ対策 */  
+            padding-top: env(safe-area-inset-top);  
+            padding-bottom: env(safe-area-inset-bottom);  
+            height: 100vh; overflow: hidden; /* 全体スクロール禁止 */  
+        }  
+        
+        /* レイアウト調整 */  
+        #map { height: 55%; width: 100%; border-bottom: 1px solid #333; }  
+        #list-panel { height: 45%; overflow-y: auto; background: #111; padding-bottom: 80px; }  
+
+        /* 上部バー */  
+        #control-bar {  
+            padding: 8px 10px; background: #222; border-bottom: 1px solid #333;  
+            display: flex; justify-content: space-between; align-items: center;  
+            position: sticky; top: 0; z-index: 100;  
+        }  
+        .edit-btn {  
+            background: #333; color: #ccc; border: 1px solid #555;  
+            padding: 5px 10px; border-radius: 4px; font-size: 0.8rem;  
+        }  
+        .edit-btn.editing { background: #c0392b; color: #fff; border-color: #e74c3c; }  
+
+        /* 時刻表デザイン */  
+        .station-group { border-bottom: 1px solid #222; }  
+        .station-header {  
+            background: #0d1b2a; padding: 8px 12px; font-weight: bold; font-size: 0.9rem;  
+            display: flex; justify-content: space-between; align-items: center; color: #e0e0e0;  
+        }  
+        .yahoo-link {  
+            font-size: 0.7rem; color: #888; text-decoration: none; border: 1px solid #444; padding: 2px 6px; border-radius: 3px;  
+        }  
+        .train-row {  
+            display: flex; justify-content: space-between; align-items: center;  
+            padding: 10px 12px; border-bottom: 1px solid #1a1a1a; font-size: 0.95rem;  
+        }  
+        .train-line { color: #888; width: 30%; font-size: 0.75rem; }  
+        .train-dest { color: #fff; width: 45%; }  
+        .train-time {   
+            color: #f1c40f; font-weight: bold; font-family: monospace; font-size: 1.2rem;   
+            width: 25%; text-align: right; letter-spacing: 1px;  
+        }  
+        input.time-edit-input {  
+            background: #333; color: #fff; border: 1px solid #555; width: 70px; text-align: right; font-size: 1.1rem;  
+        }  
+
+        /* 記録用モーダル */  
+        #modal-overlay {  
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;  
+            background: rgba(0,0,0,0.8); z-index: 2000;  
+            justify-content: center; align-items: center;  
+            /* ノッチ分を下げる */  
+            padding-top: env(safe-area-inset-top);  
+        }  
+        .modal-content {  
+            background: #222; padding: 25px; border-radius: 8px; width: 85%; max-width: 320px;  
+        }  
+        
+        .form-group { margin-bottom: 20px; }  
+        .form-label { display: block; color: #aaa; font-size: 0.8rem; margin-bottom: 5px; }  
+        
+        input[type="datetime-local"] {  
+            width: 100%; padding: 12px; box-sizing: border-box;  
+            background: #333; border: 1px solid #555; color: #fff;  
+            font-size: 1.1rem; border-radius: 6px; color-scheme: dark;  
+        }  
+
+        input[type="text"] {  
+            width: 100%; padding: 12px; box-sizing: border-box;  
+            background: #000; border: 1px solid #f1c40f; color: #fff;  
+            font-size: 1.1rem; border-radius: 6px; font-weight: bold;  
+        }  
+
+        .modal-btns { display: flex; justify-content: space-between; gap: 10px; }  
+        .btn-cancel {   
+            flex: 1; background: #444; color: #ccc; border: none; padding: 12px; border-radius: 6px; font-size: 1rem;  
+        }  
+        .btn-save {   
+            flex: 2; background: #f1c40f; color: #000; border: none; padding: 12px; border-radius: 6px; font-weight: bold; font-size: 1rem;  
+        }  
+
+        .station-icon {  
+            background: #0d1b2a; color: #fff; border: 1px solid #fff; border-radius: 3px;  
+            text-align: center; font-size: 10px; line-height: 18px; font-weight: bold;  
+        }  
+        .log-icon {  
+            background: #f1c40f; color: #000; border-radius: 50%;  
+            text-align: center; border: 2px solid #fff; font-size: 11px; line-height: 20px; font-weight: bold;  
+            box-shadow: 0 0 5px rgba(0,0,0,0.5);  
+        }  
+    </style>  
+</head>  
+<body>  
+
+    <div id="map"></div>  
+    
+    <div id="list-panel">  
+        <div id="control-bar">  
+            <span id="weather-info" style="font-size:0.8rem; color:#aaa;">--</span>  
+            <button id="edit-toggle" class="edit-btn" onclick="toggleEditMode()">時刻編集</button>  
+        </div>  
+        <div id="timetable-container"></div>  
+    </div>  
+
+    <div id="modal-overlay">  
+        <div class="modal-content">  
+            <div class="form-group">  
+                <label class="form-label">行き先</label>  
+                <input type="text" id="log-dest" placeholder="入力">  
+            </div>  
+            <div class="form-group">  
+                <label class="form-label">日時</label>  
+                <input type="datetime-local" id="log-time">  
+            </div>  
+            <div class="modal-btns">  
+                <button class="btn-cancel" onclick="closeModal()">戻る</button>  
+                <button class="btn-save" onclick="saveLog()">保存</button>  
+            </div>  
+        </div>  
+    </div>  
+
+    <script>  
+        // --- データ定義 ---  
+        const defaultData = [  
+            { id: 'fujisawa', name: '藤沢駅', url: 'https://transit.yahoo.co.jp/timetable/23304', trains: [{ l: 'JR下', d: '小田原', t: '00:30' }, { l: 'JR下', d: '平塚', t: '00:41' }, { l: '小田急', d: '大野', t: '00:24' }, { l: '小田急', d: '江ノ島', t: '00:42' }] },  
+            { id: 'tsujido', name: '辻堂駅', url: 'https://transit.yahoo.co.jp/timetable/23321/', trains: [{ l: 'JR下', d: '小田原', t: '00:34' }, { l: 'JR下', d: '平塚', t: '00:45' }] },  
+            { id: 'chigasaki', name: '茅ヶ崎駅', url: 'https://transit.yahoo.co.jp/timetable/23249/', trains: [{ l: 'JR下', d: '小田原', t: '00:38' }, { l: '相模', d: '橋本', t: '23:42' }, { l: '相模', d: '海老名', t: '23:56' }] },  
+            { id: 'shonandai', name: '湘南台駅', url: 'https://transit.yahoo.co.jp/timetable/23366/', trains: [{ l: '小田急', d: '藤沢', t: '00:33' }, { l: '相鉄', d: '二俣川', t: '00:26' }, { l: '地下鉄', d: '上永谷', t: '00:19' }] }  
+        ];  
+
+        let stationData = JSON.parse(localStorage.getItem('taxi_timetable_v2')) || defaultData;  
+        let isEditing = false;  
+
+        function renderTimetable() {  
+            const container = document.getElementById('timetable-container');  
+            container.innerHTML = '';  
+            stationData.forEach((st, stIndex) => {  
+                const group = document.createElement('div');  
+                group.className = 'station-group';  
+                group.id = `st-${st.id}`;  
+                let rowsHtml = '';  
+                st.trains.forEach((tr, trIndex) => {  
+                    const timeDisplay = isEditing   
+                        ? `<input type="time" class="time-edit-input" value="${tr.t}" onchange="updateTime(${stIndex}, ${trIndex}, this.value)">`  
+                        : `<span class="train-time">${tr.t}</span>`;  
+                    rowsHtml += `<div class="train-row"><span class="train-line">${tr.l}</span><span class="train-dest">${tr.d}</span>${timeDisplay}</div>`;  
+                });  
+                group.innerHTML = `<div class="station-header"><span>${st.name}</span><a href="${st.url}" target="_blank" class="yahoo-link">Yahoo!</a></div>${rowsHtml}`;  
+                container.appendChild(group);  
+            });  
+        }  
+
+        window.updateTime = (sIdx, tIdx, val) => stationData[sIdx].trains[tIdx].t = val;  
+        window.toggleEditMode = () => {  
+            const btn = document.getElementById('edit-toggle');  
+            if (isEditing) {  
+                localStorage.setItem('taxi_timetable_v2', JSON.stringify(stationData));  
+                isEditing = false;  
+                btn.innerText = "時刻編集";  
+                btn.classList.remove('editing');  
+            } else {  
+                isEditing = true;  
+                btn.innerText = "保存";  
+                btn.classList.add('editing');  
+            }  
+            renderTimetable();  
+        };  
+
+        const map = L.map('map', { zoomControl: false }).setView([35.3389, 139.4875], 12);  
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '' }).addTo(map);  
+
+        if (navigator.geolocation) {  
+            navigator.geolocation.watchPosition(pos => {  
+                const lat = pos.coords.latitude;  
+                const lon = pos.coords.longitude;  
+                L.circleMarker([lat, lon], { color: '#2ed573', radius: 5, fillOpacity: 1 }).addTo(map);  
+                getWeather(lat, lon);  
+            });  
+        }  
+
+        const stations = [  
+            {lat:35.3389, lon:139.4875, id:'fujisawa', name:'藤沢'}, {lat:35.3368, lon:139.4473, id:'tsujido', name:'辻堂'},  
+            {lat:35.3304, lon:139.4068, id:'chigasaki', name:'茅ヶ崎'}, {lat:35.3965, lon:139.4664, id:'shonandai', name:'湘南台'}  
+        ];  
+        stations.forEach(s => {  
+            const icon = L.divIcon({ className: 'station-icon', html: s.name, iconSize: [40, 18] });  
+            L.marker([s.lat, s.lon], {icon: icon}).addTo(map).on('click', () => document.getElementById(`st-${s.id}`).scrollIntoView({ behavior: 'smooth' }));  
+        });  
+
+        let tempLatLng = null;  
+        const modal = document.getElementById('modal-overlay');  
+        const timeInput = document.getElementById('log-time');  
+        const destInput = document.getElementById('log-dest');  
+
+        map.on('click', function(e) {  
+            tempLatLng = e.latlng;  
+            const now = new Date();  
+            const offset = now.getTimezoneOffset() * 60000;  
+            const localISOTime = (new Date(now - offset)).toISOString().slice(0, 16);  
+            timeInput.value = localISOTime;  
+            destInput.value = "";  
+            modal.style.display = 'flex';  
+            setTimeout(() => destInput.focus(), 100);  
+        });  
+
+        window.saveLog = function() {  
+            const note = destInput.value;  
+            if(!note) { alert("行き先を入力してください"); return; }  
+            const dateVal = new Date(timeInput.value);  
+            const displayTime = `${dateVal.getMonth()+1}/${dateVal.getDate()} ${dateVal.getHours()}:${String(dateVal.getMinutes()).padStart(2,'0')}`;  
+            const logEntry = { lat: tempLatLng.lat, lon: tempLatLng.lng, time: displayTime, note: note };  
+            let logs = JSON.parse(localStorage.getItem('taxi_logs_v3')) || [];  
+            logs.push(logEntry);  
+            localStorage.setItem('taxi_logs_v3', JSON.stringify(logs));  
+            addLogMarker(logEntry);  
+            closeModal();  
+        };  
+
+        function addLogMarker(log) {  
+            const icon = L.divIcon({ className: 'log-icon', html: '¥', iconSize: [20, 20] });  
+            const m = L.marker([log.lat, log.lon], {icon: icon}).addTo(map);  
+            m.bindPopup(`<strong style="font-size:14px">${log.note}</strong><br><span style="color:#666">${log.time}</span>`);  
+        }  
+        window.closeModal = () => modal.style.display = 'none';  
+
+        const savedLogs = JSON.parse(localStorage.getItem('taxi_logs_v3')) || [];  
+        savedLogs.forEach(log => addLogMarker(log));  
+
+        async function getWeather(lat, lon) {  
+            try {  
+                const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);  
+                const d = await res.json();  
+                document.getElementById('weather-info').innerText = `${d.current_weather.temperature}℃`;  
+            } catch(e) {}  
+        }  
+
+        renderTimetable();  
+    </script>  
+</body>  
+</html>
