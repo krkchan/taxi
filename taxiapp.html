@@ -3,7 +3,7 @@
 <head>  
     <meta charset="UTF-8">  
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">  
-    <title>Taxi</title>  
+    <title>Taxi Pro</title>  
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />  
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>  
     <style>  
@@ -69,14 +69,16 @@
 
         .log-card {  
             background: #1a1a1a; border: 1px solid #333; border-radius: 4px;  
-            padding: 8px; margin-bottom: 8px; position: relative;  
+            padding: 8px; margin-bottom: 8px; position: relative; cursor: pointer; /* クリックできる感 */  
+            transition: background 0.2s;  
         }  
+        .log-card:active { background: #333; }  
         .log-date-label { font-size: 0.7rem; color: #666; display: block; margin-bottom: 2px; }  
         .log-time { color: #f1c40f; font-family: monospace; font-size: 1.1rem; font-weight: bold; margin-right: 5px;}  
         .log-dest { display: block; font-weight: bold; font-size: 0.9rem; margin-top: 2px; color: #fff; }  
         .btn-card-del {  
             position: absolute; top: 5px; right: 5px;  
-            background: none; border: none; color: #444; font-size: 1.2rem; line-height: 1; padding: 0;  
+            background: none; border: none; color: #444; font-size: 1.2rem; line-height: 1; padding: 0; z-index: 10;  
         }  
 
         /* --- モーダルなど --- */  
@@ -104,6 +106,10 @@
             box-shadow: 0 0 4px rgba(0,0,0,0.5);  
         }  
         .btn-mini { background:#333; color:#ccc; border:1px solid #555; padding:4px 8px; border-radius:4px; font-size:0.8rem;}  
+
+        /* ポップアップ内のボタン */  
+        .popup-btn-edit { background: #2ecc71; color: #fff; border: none; border-radius: 3px; margin-right: 5px; padding: 4px 8px;}  
+        .popup-btn-del { background: #e74c3c; color: #fff; border: none; border-radius: 3px; padding: 4px 8px; }  
     </style>  
 </head>  
 <body>  
@@ -131,8 +137,6 @@
                 <div id="history-scroller">  
                     <!-- JSで日〜土の列を生成 -->  
                 </div>  
-                <!-- 全削除ボタン等はヘッダーがないので、最後の列のさらに奥か、別配置にするが、  
-                     今回はシンプルに「時刻表」タブ側にCSV機能を移すか、必要なら後で追加 -->  
             </div>  
         </div>  
     </div>  
@@ -229,29 +233,36 @@
                 const m = L.marker([log.lat, log.lon], {icon: icon});  
                 const d = new Date(log.ts);  
                 const dateStr = `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;  
-                m.bindPopup(`<div style="text-align:center"><strong>${log.note}</strong><br><span style="font-size:0.8rem;color:#666">${dateStr}</span><br><button onclick="deleteLog(${idx})" style="margin-top:5px;background:#c0392b;color:#fff;border:none;border-radius:3px">削除</button></div>`);  
+                
+                // 編集・削除ボタン付きのポップアップ  
+                const popupContent = `  
+                    <div style="text-align:center">  
+                        <strong>${log.note}</strong><br>  
+                        <span style="font-size:0.8rem;color:#666">${dateStr}</span><br>  
+                        <div style="margin-top:5px;">  
+                            <button class="popup-btn-edit" onclick="editLog(${idx})">編集</button>  
+                            <button class="popup-btn-del" onclick="deleteLog(${idx})">削除</button>  
+                        </div>  
+                    </div>`;  
+                m.bindPopup(popupContent);  
                 logsLayerGroup.addLayer(m);  
             });  
         }  
 
-        // --- 曜日別カラム表示 (新しい履歴画面) ---  
+        // --- 曜日別カラム表示 ---  
         function renderWeekColumns() {  
             const scroller = document.getElementById('history-scroller');  
             scroller.innerHTML = ''; // リセット  
 
             const logs = getLogs();  
-            // 新しい順に並べ替え  
             logs.sort((a, b) => new Date(b.ts) - new Date(a.ts));  
 
             const days = ['日', '月', '火', '水', '木', '金', '土'];  
             const todayIndex = new Date().getDay();  
 
-            // 7日分のカラム枠を作成  
             for(let i=0; i<7; i++) {  
                 const col = document.createElement('div');  
                 col.className = 'day-column';  
-                
-                // ヘッダー作成  
                 let headerClass = 'day-header';  
                 if(i === 0) headerClass += ' sunday';  
                 if(i === 6) headerClass += ' saturday';  
@@ -261,18 +272,14 @@
                 scroller.appendChild(col);  
             }  
 
-            // ログを各カラムに振り分け  
             logs.forEach((log, idx) => {  
-                // idxはソート後の順番だが、削除用に元の配列のインデックスが必要  
-                // ここでは簡易的に全検索してマッチさせる  
                 const originalIdx = getLogs().findIndex(l => l.ts === log.ts && l.note === log.note);  
-
                 const d = new Date(log.ts);  
-                const dayIndex = d.getDay(); // 0(日)〜6(土)  
+                const dayIndex = d.getDay();  
                 const targetContainer = document.getElementById(`day-col-${dayIndex}`);  
                 
                 const timeStr = `${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;  
-                const dateLabel = `${d.getMonth()+1}/${d.getDate()}`; // 同じ月曜でもいつか分かるように  
+                const dateLabel = `${d.getMonth()+1}/${d.getDate()}`;  
 
                 const card = document.createElement('div');  
                 card.className = 'log-card';  
@@ -280,11 +287,40 @@
                     <span class="log-date-label">${dateLabel}</span>  
                     <span class="log-time">${timeStr}</span>  
                     <span class="log-dest">${log.note}</span>  
-                    <button class="btn-card-del" onclick="deleteLog(${originalIdx})">×</button>  
+                    <button class="btn-card-del" id="del-btn-${originalIdx}">×</button>  
                 `;  
+                
+                // クリックイベント: カード本体なら地図移動、×ボタンなら削除  
+                card.onclick = (e) => {  
+                    if (e.target.id === `del-btn-${originalIdx}`) {  
+                        deleteLog(originalIdx);  
+                    } else {  
+                        jumpToLog(log.lat, log.lon);  
+                    }  
+                };  
+
                 targetContainer.appendChild(card);  
             });  
         }  
+
+        // 地図へジャンプ  
+        window.jumpToLog = function(lat, lon) {  
+            map.flyTo([lat, lon], 16, { duration: 1.5 });  
+        };  
+
+        // ログ編集  
+        window.editLog = function(idx) {  
+            let logs = getLogs();  
+            const currentNote = logs[idx].note;  
+            const newNote = prompt("行き先を修正:", currentNote);  
+            if (newNote !== null && newNote !== "") {  
+                logs[idx].note = newNote;  
+                localStorage.setItem(DB_KEY_LOGS, JSON.stringify(logs));  
+                renderMapPins();  
+                renderWeekColumns();  
+                map.closePopup();  
+            }  
+        };  
 
         window.deleteLog = function(idx) {  
             if(!confirm("削除しますか？")) return;  
@@ -308,7 +344,7 @@
             } else {  
                 document.querySelector('.tab-btn:nth-child(2)').classList.add('active');  
                 document.getElementById('view-history').style.display = 'block';  
-                renderWeekColumns(); // 表示時に描画  
+                renderWeekColumns();  
             }  
         };  
 
